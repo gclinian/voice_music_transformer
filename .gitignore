@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Output
+recordings/
+
+# SoundFonts — fetched via scripts/download_soundfont.sh
+soundfonts/*.sf2
+soundfonts/*.sf3
+
+# macOS
+.DS_Store
+
+# Editor / agent state
+.claude/
