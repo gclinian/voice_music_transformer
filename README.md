@@ -1,92 +1,177 @@
 # voice-to-piano
 
-唱歌、哼歌或吹口哨 → 即時聽到鋼琴音。PySide6 GUI。
+[![CI](https://github.com/gclinian/voice_music_transformer/actions/workflows/ci.yml/badge.svg)](https://github.com/gclinian/voice_music_transformer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Made with PySide6](https://img.shields.io/badge/GUI-PySide6-41cd52.svg)](https://wiki.qt.io/Qt_for_Python)
 
-Pipeline: mic → autocorrelation pitch detection → MIDI note → FluidSynth piano → speaker.
+**Sing into a microphone, hear a piano — or a violin, cello, or flute. Choose a genre, and the app auto-generates chords in your key. Save your performance as WAV, MIDI, and printable sheet music.**
 
-## Setup (macOS)
+> Two-pass workflow: record a clean single-line melody, then click **Harmonize** and the app reads the whole phrase, detects the key, and writes a chord track underneath your melody.
+
+---
+
+## Features
+
+- 🎤 **Real-time pitch detection** — FFT autocorrelation with parabolic interpolation. Sub-cent accuracy on clean tones, ~50 ms latency end-to-end.
+- 🎹 **18 General MIDI instruments** — Acoustic & Electric Piano, Violin, Viola, Cello, String Ensemble, Flute, Trumpet, Vibraphone, Choir, Square Lead, and more. Switch live.
+- 🎼 **Key-aware chords** — pick from 24 keys (12 major + 12 minor); `Diatonic triad` / `Diatonic 7th` modes pick the right quality (Dm, not D, when you sing D in C major). 11 other shapes for power chords, sus4s, parallel triads, etc.
+- 🎚 **Genre presets** — Pop / Jazz / Classical / Beatles / Custom. One click sets Instrument + Chord + Bass + V7 to a coherent voicing.
+- 🎙 **Three-file recording** — WAV (stereo 44.1 kHz), MIDI (note events), and **MusicXML** (printable sheet music, opens in MuseScore / Finale / Sibelius).
+- ♪ **Post-hoc harmonization** — record melody alone, then let the app analyse the whole phrase to add context-aware chords (V→I cadences, ii→V approaches, downbeat alignment).
+- 🖥 **Native GUI** — PySide6 / Qt 6. 88-key keyboard widget with highlighted active chord, VU meter, threshold/confidence sliders.
+
+## Demo
+
+A quick what-it-does cheat sheet:
+
+| You sing | Chord = Off (mono) | Chord = Diatonic, Key = C major | Chord = Diatonic 7th |
+|---|---|---|---|
+| C | C | **C E G** (I) | **C E G B** (Imaj7) |
+| D | D | **D F A** (ii — Dm) | **D F A C** (ii7 — Dm7) |
+| G | G | **G B D** (V) | **G B D F** (V7) |
+
+…with Bass octaves on, each chord also adds the root one octave below.
+
+## Quickstart
+
+### macOS
 
 ```sh
-# 1. FluidSynth (audio synthesis backend)
+# 1. System dependency
 brew install fluid-synth
 
-# 2. Python deps (uv handles the .venv with Python 3.11)
+# 2. Clone + sync (uv handles the Python 3.11 venv)
+git clone https://github.com/gclinian/voice_music_transformer.git
+cd voice_music_transformer
 uv sync
 
-# 3. Download a piano SoundFont (~31 MB GeneralUser GS)
+# 3. Free SoundFont (~31 MB, GeneralUser GS)
 ./scripts/download_soundfont.sh
-```
 
-## Run
-
-```sh
+# 4. Run
 uv run python main.py
 ```
 
-GUI 操作：
-1. 確認 `Settings → SoundFont` 已經指到 `.sf2` 檔
-2. 選擇麥克風 (預設用系統預設輸入)
-3. 點 **Start**
-4. 對著麥克風唱／哼／吹口哨
+### Linux
 
-## GUI components
+```sh
+sudo apt install fluidsynth libportaudio2     # or: dnf install fluidsynth portaudio
+git clone https://github.com/gclinian/voice_music_transformer.git
+cd voice_music_transformer
+uv sync
+./scripts/download_soundfont.sh
+uv run python main.py
+```
 
-- **大字音名顯示**：當下偵測到的音 (例如 `A4`)
-- **頻率/MIDI/velocity**：即時 debug 資訊
-- **88 鍵鋼琴**：彈到的鍵會高亮
-- **VU meter**：麥克風音量，白色細線是 threshold
-- **滑桿**：
-  - `Threshold` — 環境吵就調高，避免靜音被誤判
-  - `Confidence` — 口哨/唱歌不穩可以調高
-- **Genre**：高階風格 preset，一鍵把 Instrument / Chord / Bass / V7 全部設好
-  - `Pop` — Bright Piano + diatonic triads
-  - `Jazz` — Rhodes + diatonic 7ths + 根音 bass + V7
-  - `Classical` — Grand Piano + diatonic triads + 八度 bass
-  - `Beatles` — Grand Piano + diatonic triads + V7 終止式
-  - `Custom` — 完全手動
-- **Key**：24 個調 (12 大 + 12 小)。Diatonic 模式會用這個決定每個音應該配哪種和弦
-- **Instrument**：18 種 General MIDI 樂器 (Piano、Violin、Cello、Flute、Trumpet…) 即時切換
-- **Chord**：13 種和弦模式
-  - `Diatonic triad` (預設) / `Diatonic 7th` — 看 Key 決定 (例如 C 大調裡 D 自動配 Dm)
-  - `Major / Minor triad`、`Sus4`、`Power`、`Major 7`、`Minor 7`、`Octave`、`Bass + triad`、`Off (mono)`
-- **Bass octaves**：根音下移幾個八度 (0 / 1 / 2)
-- **V → V7**：勾起來讓 V 級和弦升級為屬七 (Beatles 終止式)
-- **Start / Stop**：開關引擎
-- **● Record**：按下開始錄，再按一下停。同時存三個檔到 `recordings/`：
-  - `piano_2026-05-21_00-07-12.wav` — 樂器音訊 (44.1 kHz / stereo / int16)，包含和弦
-  - `piano_2026-05-21_00-07-12.mid` — MIDI，可以丟進 GarageBand/Logic 換音色或編輯
-  - `piano_2026-05-21_00-07-12.musicxml` — 樂譜檔，量化過拍子與調號，免費的 MuseScore 開啟即看五線譜
-- **♪ Harmonize Last**：兩段式工作流。先把 Chord 切到 `Off (mono)` 錄純旋律 → 點這顆，引擎會：
-  1. 用 Krumhansl-Schmuckler 演算法從整段旋律偵測 key
-  2. 把旋律切成小節 (一小節一個和弦)
-  3. 每小節挑最符合該段音的 diatonic 和弦，並用 V→I / ii→V 等常見進行的 bonus 做前後文修正
-  4. 末小節若旋律落在主音，強制配 I 收尾
-  5. 多存三個檔：`piano_*_harmonized.{wav,mid,musicxml}`
-  
-  測試結果：Mary had a little lamb 自動配 `I → I → V → I`；Twinkle Twinkle 配 `I → V → ii → V → ii → I → V → I`
+### Requirements
 
-## Project layout
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) ≥ 0.4
+- [FluidSynth](https://www.fluidsynth.org/) ≥ 2.0
+- A microphone
+
+## Usage
+
+1. Launch the app.
+2. (Optional) Pick a **Genre** — Pop, Jazz, Classical, Beatles. This sets sensible defaults for everything below.
+3. Choose your **Key** if you know it. Otherwise leave it on `C major` and use Harmonize later (which auto-detects).
+4. Pick an **Instrument** — Acoustic Grand, Violin, Cello, Flute, etc.
+5. Hit **Start** to open the mic. Hit **● Record** to capture.
+6. Sing, hum, or whistle. The highlighted keyboard shows what's playing; the VU meter shows your level.
+7. **■ Stop Recording** writes three files to `recordings/`:
+   - `piano_<timestamp>.wav` — audio of the synthesised performance
+   - `piano_<timestamp>.mid` — MIDI you can drop into a DAW
+   - `piano_<timestamp>.musicxml` — sheet music for MuseScore
+8. **♪ Harmonize Last** (recommended after a melody-only recording): the app reads the just-saved MIDI, detects the key, picks one chord per bar with full-phrase context, and saves a `*_harmonized.{wav,mid,musicxml}` triple.
+
+## How it works
 
 ```
-main.py                       # entrypoint
+┌──────────┐  44.1 kHz  ┌────────────────────────┐
+│   Mic    │ ─────────▶ │   InputStream callback │
+└──────────┘            └─────────────┬──────────┘
+                                      │ 2048-sample blocks
+                                      ▼
+                           ┌─────────────────────┐
+                           │ FFT autocorrelation │ ← Pitch detection
+                           │   pitch detection   │   (voice_to_piano/pitch.py)
+                           └──────────┬──────────┘
+                                      │ MIDI note
+                                      ▼
+                       ┌────────────────────────────┐
+                       │   Chord mode + Key + Bass  │ ← voice_to_piano/harmony.py
+                       │  → note-on / note-off set  │   voice_to_piano/instruments.py
+                       └──────────────┬─────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────┐
+              ▼                       ▼                   ▼
+       ┌─────────────┐      ┌──────────────────┐  ┌─────────────┐
+       │ FluidSynth  │      │   MIDI events    │  │  Recording  │
+       │  get_samples│      │     buffer       │  │   buffer    │
+       └──────┬──────┘      └────────┬─────────┘  └──────┬──────┘
+              │                      │ stop_recording    │
+              ▼                      ▼                   ▼
+       ┌─────────────┐      ┌─────────────────┐  ┌──────────────┐
+       │  Speakers   │      │ MIDI / MusicXML │  │     WAV      │
+       └─────────────┘      └─────────────────┘  └──────────────┘
+                                      │
+                                      ▼
+                             ♪  Harmonize  ♪
+                       ┌────────────────────────────┐
+                       │  music21 key detection +   │
+                       │  per-bar chord scoring     │ ← voice_to_piano/harmonizer.py
+                       │  with progression bonuses  │
+                       └──────────────┬─────────────┘
+                                      ▼
+                       *_harmonized.{wav,mid,musicxml}
+```
+
+Two threads coordinate through Qt signals:
+
+- **PortAudio's I/O callbacks** (input + output) push/pull samples in real time.
+- A **worker thread** drains the input queue, runs pitch detection, decides what to play, and emits Qt signals that Qt queues to the UI thread automatically.
+
+See `voice_to_piano/audio_engine.py` for the full state machine.
+
+## Architecture
+
+```
+main.py                       Entry point: parse CLI args, launch QApplication.
 voice_to_piano/
-  pitch.py                    # FFT autocorrelation pitch detection
-  audio_engine.py             # AudioEngine: mic → pitch → FluidSynth, Qt signals
-  ui.py                       # PySide6 MainWindow, piano keyboard, VU meter
-scripts/
-  download_soundfont.sh
-soundfonts/
-  GeneralUser.sf2             # bank 0 preset 0 = Grand Piano
+├── pitch.py                  FFT autocorrelation pitch detection.
+├── harmony.py                Keys, scale degrees, diatonic chord lookup.
+├── harmonizer.py             Post-hoc chord generation (whole-melody context).
+├── instruments.py            GM instrument list + chord-recipe table.
+├── genres.py                 Genre presets (Pop / Jazz / Classical / Beatles).
+├── audio_engine.py           Mic → pitch → FluidSynth → speaker; recording.
+├── render.py                 Offline MIDI → WAV using FluidSynth.
+└── ui.py                     PySide6 MainWindow + custom keyboard/VU widgets.
+tests/                        Pytest suite — pitch, harmony, genres.
+scripts/download_soundfont.sh GeneralUser GS fetch helper.
 ```
-
-## Limitations
-
-- **Monophonic**：一次只發一個音
-- **Latency**：block 2048 samples @ 44.1 kHz ≈ 46 ms 偵測 + FluidSynth 緩衝 ~ 整體 100 ms 左右
-- **Voice range**：70 Hz – 1100 Hz
 
 ## Roadmap
 
-- [ ] Polyphonic mode via Spotify `basic-pitch`
-- [ ] 錄音模式 (sing → export MIDI/wav)
-- [ ] 視覺化最近彈過的音 (piano roll)
+- [ ] True polyphonic pitch detection (basic-pitch) for multi-voice input
+- [ ] Live arpeggiator / Alberti-bass patterns under the chord
+- [ ] Tempo detection so harmonizer aligns chord changes to musical bars instead of fixed quarter-note windows
+- [ ] In-app sheet-music preview (no need to open MuseScore externally)
+- [ ] Cross-platform CI for macOS + Windows
+- [ ] Better non-diatonic note handling (modal mixture, secondary dominants)
+
+## Contributing
+
+PRs and ideas are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and house style. Bug reports and feature requests via [Issues](https://github.com/gclinian/voice_music_transformer/issues).
+
+## License
+
+[MIT](LICENSE). Includes piano samples from [GeneralUser GS](http://www.schristiancollins.com/generaluser.php) by S. Christian Collins, which has its own permissive license — the file is fetched at install time and is not redistributed by this repo.
+
+## Acknowledgements
+
+- [FluidSynth](https://www.fluidsynth.org/) — open-source SoundFont synthesizer
+- [GeneralUser GS](http://www.schristiancollins.com/generaluser.php) — free GM SoundFont by S. Christian Collins
+- [music21](https://web.mit.edu/music21/) (MIT) — music theory and MusicXML
+- [Krumhansl & Schmuckler](https://en.wikipedia.org/wiki/Krumhansl%E2%80%93Schmuckler_key-finding_algorithm) — key-detection algorithm used by the harmonizer
+- [PySide6 / Qt](https://wiki.qt.io/Qt_for_Python) — the GUI toolkit

@@ -21,3 +21,7 @@ soundfonts/*.sf3
 
 # Editor / agent state
 .claude/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/

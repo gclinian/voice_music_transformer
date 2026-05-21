@@ -22,10 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .audio_engine import AudioEngine, PIANO_MAX_MIDI, PIANO_MIN_MIDI
+from .audio_engine import PIANO_MAX_MIDI, PIANO_MIN_MIDI, AudioEngine
 from .genres import GENRES, get_genre
-from .harmony import KEYS
 from .harmonizer import harmonize_melody
+from .harmony import KEYS
 from .instruments import (
     CHORD_RECIPES,
     DEFAULT_CHORD,
