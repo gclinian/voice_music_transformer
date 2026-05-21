@@ -22,10 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from .audio_engine import AudioEngine, PIANO_MAX_MIDI, PIANO_MIN_MIDI
+from .genres import GENRES, get_genre
+from .harmony import KEYS
 from .instruments import (
     CHORD_RECIPES,
     DEFAULT_CHORD,
     DEFAULT_INSTRUMENT_PROGRAM,
+    DEFAULT_KEY,
     INSTRUMENTS,
 )
 from .pitch import midi_to_note_name
@@ -215,6 +218,29 @@ class MainWindow(QMainWindow):
         settings = QGroupBox("Settings")
         sl = QVBoxLayout(settings)
 
+        # Genre row (high-level preset)
+        genre_row = QHBoxLayout()
+        genre_row.addWidget(QLabel("Genre"))
+        self.genre_combo = QComboBox()
+        for g in GENRES:
+            self.genre_combo.addItem(g.name, g.name)
+            self.genre_combo.setItemData(
+                self.genre_combo.count() - 1, g.blurb, Qt.ItemDataRole.ToolTipRole
+            )
+        self.genre_combo.setCurrentText("Pop")
+        self.genre_combo.currentTextChanged.connect(self._on_genre_changed)
+        genre_row.addWidget(self.genre_combo, stretch=1)
+
+        genre_row.addSpacing(12)
+        genre_row.addWidget(QLabel("Key"))
+        self.key_combo = QComboBox()
+        for name, _, _ in KEYS:
+            self.key_combo.addItem(name)
+        self.key_combo.setCurrentText(DEFAULT_KEY)
+        self.key_combo.currentTextChanged.connect(self._on_key_changed)
+        genre_row.addWidget(self.key_combo, stretch=1)
+        sl.addLayout(genre_row)
+
         # Instrument + Chord row
         inst_row = QHBoxLayout()
         inst_row.addWidget(QLabel("Instrument"))
@@ -236,6 +262,21 @@ class MainWindow(QMainWindow):
         self.chord_combo.currentTextChanged.connect(self._on_chord_changed)
         inst_row.addWidget(self.chord_combo, stretch=1)
         sl.addLayout(inst_row)
+
+        # Bass octaves + V7 toggle
+        bass_row = QHBoxLayout()
+        bass_row.addWidget(QLabel("Bass octaves"))
+        self.bass_combo = QComboBox()
+        for label, octaves in [("Off", 0), ("1 octave down", 1), ("2 octaves down", 2)]:
+            self.bass_combo.addItem(label, octaves)
+        self.bass_combo.currentIndexChanged.connect(self._on_bass_changed)
+        bass_row.addWidget(self.bass_combo, stretch=1)
+        bass_row.addSpacing(12)
+        from PySide6.QtWidgets import QCheckBox  # local import keeps top tidy
+        self.dom7_check = QCheckBox("V → V7 (dominant cadence)")
+        self.dom7_check.toggled.connect(self._on_dom7_changed)
+        bass_row.addWidget(self.dom7_check, stretch=1)
+        sl.addLayout(bass_row)
 
         # Input device
         dev_row = QHBoxLayout()
@@ -401,6 +442,9 @@ class MainWindow(QMainWindow):
             confidence=self.confidence_slider.value() * 0.01,
             instrument_program=self.instrument_combo.currentData(),
             chord_mode=self.chord_combo.currentText(),
+            key_label=self.key_combo.currentText(),
+            bass_octaves=self.bass_combo.currentData(),
+            dom7_on_v=self.dom7_check.isChecked(),
         )
         self._engine.levelChanged.connect(self.vu.set_level)
         self._engine.notePlayed.connect(self._on_note)
@@ -445,10 +489,13 @@ class MainWindow(QMainWindow):
             self.record_btn.setText("● Record")
             self.record_btn.setStyleSheet(self._record_btn_style(active=False))
 
-    def _on_recording_saved(self, wav_path: str, midi_path: str) -> None:
-        wav_name = Path(wav_path).name
-        midi_name = Path(midi_path).name
-        self.status_label.setText(f"Saved: {wav_name} + {midi_name}")
+    def _on_recording_saved(
+        self, wav_path: str, midi_path: str, musicxml_path: str
+    ) -> None:
+        parts = [Path(wav_path).name, Path(midi_path).name]
+        if musicxml_path:
+            parts.append(Path(musicxml_path).name)
+        self.status_label.setText("Saved: " + " + ".join(parts))
 
     def _on_note(self, midi: int, freq: float, velocity: int, chord) -> None:
         self.note_label.setText(midi_to_note_name(midi))
@@ -471,6 +518,35 @@ class MainWindow(QMainWindow):
     def _on_chord_changed(self, mode: str) -> None:
         if self._engine is not None:
             self._engine.set_chord_mode(mode)
+
+    def _on_key_changed(self, label: str) -> None:
+        if self._engine is not None:
+            self._engine.set_key(label)
+
+    def _on_bass_changed(self, _index: int) -> None:
+        if self._engine is not None:
+            self._engine.set_bass_octaves(self.bass_combo.currentData())
+
+    def _on_dom7_changed(self, checked: bool) -> None:
+        if self._engine is not None:
+            self._engine.set_dom7_on_v(checked)
+
+    def _on_genre_changed(self, name: str) -> None:
+        g = get_genre(name)
+        if g is None or name == "Custom":
+            return
+        # Set all dependent widgets; their signals propagate to the engine.
+        if g.chord_mode in CHORD_RECIPES:
+            self.chord_combo.setCurrentText(g.chord_mode)
+        for i in range(self.instrument_combo.count()):
+            if self.instrument_combo.itemData(i) == g.instrument_program:
+                self.instrument_combo.setCurrentIndex(i)
+                break
+        for i in range(self.bass_combo.count()):
+            if self.bass_combo.itemData(i) == g.bass_octaves:
+                self.bass_combo.setCurrentIndex(i)
+                break
+        self.dom7_check.setChecked(g.dom7_on_V)
 
     def _on_error(self, msg: str) -> None:
         QMessageBox.critical(self, "Audio error", msg)

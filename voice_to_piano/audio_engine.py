@@ -29,10 +29,13 @@ import numpy as np  # noqa: E402
 import sounddevice as sd  # noqa: E402
 from PySide6.QtCore import QObject, Signal  # noqa: E402
 
+from .harmony import diatonic_chord_notes, key_label_to_tonic  # noqa: E402
 from .instruments import (  # noqa: E402
     CHORD_RECIPES,
     DEFAULT_CHORD,
     DEFAULT_INSTRUMENT_PROGRAM,
+    DEFAULT_KEY,
+    DIATONIC_MODES,
 )
 from .pitch import detect_pitch_autocorr, freq_to_midi  # noqa: E402
 
@@ -55,7 +58,7 @@ class AudioEngine(QObject):
     noteReleased = Signal()
     errorOccurred = Signal(str)
     recordingStateChanged = Signal(bool)
-    recordingSaved = Signal(str, str)  # wav_path, midi_path
+    recordingSaved = Signal(str, str, str)  # wav_path, midi_path, musicxml_path
 
     def __init__(
         self,
@@ -67,6 +70,9 @@ class AudioEngine(QObject):
         recordings_dir: str = "recordings",
         instrument_program: int = DEFAULT_INSTRUMENT_PROGRAM,
         chord_mode: str = DEFAULT_CHORD,
+        key_label: str = DEFAULT_KEY,
+        bass_octaves: int = 0,
+        dom7_on_v: bool = False,
     ) -> None:
         super().__init__()
         self._soundfont_path = soundfont_path
@@ -77,6 +83,10 @@ class AudioEngine(QObject):
         self._recordings_dir = Path(recordings_dir)
         self._instrument_program = instrument_program
         self._chord_mode = chord_mode
+        self._key_label = key_label
+        self._key_tonic, self._key_mode = key_label_to_tonic(key_label)
+        self._bass_octaves = bass_octaves
+        self._dom7_on_v = dom7_on_v
 
         self._audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=20)
         self._stop_event = threading.Event()
@@ -114,6 +124,19 @@ class AudioEngine(QObject):
         # Drop the in-flight chord so the next detection picks up the new mode.
         self._release_active_notes()
         self._chord_mode = mode
+
+    def set_key(self, label: str) -> None:
+        self._release_active_notes()
+        self._key_label = label
+        self._key_tonic, self._key_mode = key_label_to_tonic(label)
+
+    def set_bass_octaves(self, n: int) -> None:
+        self._release_active_notes()
+        self._bass_octaves = max(0, int(n))
+
+    def set_dom7_on_v(self, enabled: bool) -> None:
+        self._release_active_notes()
+        self._dom7_on_v = bool(enabled)
 
     def is_running(self) -> bool:
         return self._worker is not None and self._worker.is_alive()
@@ -216,6 +239,7 @@ class AudioEngine(QObject):
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         wav_path = self._recordings_dir / f"piano_{stamp}.wav"
         midi_path = self._recordings_dir / f"piano_{stamp}.mid"
+        musicxml_path = self._recordings_dir / f"piano_{stamp}.musicxml"
 
         try:
             self._write_wav(wav_path, wav_chunks)
@@ -224,8 +248,16 @@ class AudioEngine(QObject):
             self.errorOccurred.emit(f"Save failed: {exc}")
             return None
 
-        self.recordingSaved.emit(str(wav_path), str(midi_path))
-        return str(wav_path), str(midi_path)
+        # MusicXML is best-effort: if quantization fails we still keep WAV+MIDI.
+        xml_out = ""
+        try:
+            self._write_musicxml(midi_path, musicxml_path, self._key_label)
+            xml_out = str(musicxml_path)
+        except Exception as exc:
+            self.errorOccurred.emit(f"MusicXML export failed (WAV+MIDI saved): {exc}")
+
+        self.recordingSaved.emit(str(wav_path), str(midi_path), xml_out)
+        return str(wav_path), str(midi_path), xml_out
 
     # --- callbacks --------------------------------------------------------
 
@@ -290,10 +322,24 @@ class AudioEngine(QObject):
         if self._fs is None or self._root_note == root:
             return
 
-        intervals = CHORD_RECIPES.get(self._chord_mode, (0,))
-        new_notes = {
-            n for n in (root + i for i in intervals) if PIANO_MIN_MIDI <= n <= PIANO_MAX_MIDI
-        }
+        if self._chord_mode in DIATONIC_MODES:
+            voices = diatonic_chord_notes(
+                root,
+                self._key_tonic,
+                self._key_mode,
+                use_seventh=self._chord_mode == "Diatonic 7th",
+                bass_octaves=self._bass_octaves,
+                dom7_on_V=self._dom7_on_v,
+            )
+        else:
+            intervals = CHORD_RECIPES.get(self._chord_mode, (0,))
+            voices = [root + i for i in intervals]
+            if self._bass_octaves > 0 and 0 in intervals:
+                # User has Bass slider on with a non-diatonic recipe — add it.
+                for k in range(1, self._bass_octaves + 1):
+                    voices.insert(0, root - 12 * k)
+
+        new_notes = {n for n in voices if PIANO_MIN_MIDI <= n <= PIANO_MAX_MIDI}
 
         # Release notes that aren't in the new chord, keep shared ones ringing.
         for old in self._active_notes - new_notes:
@@ -338,6 +384,32 @@ class AudioEngine(QObject):
             f.setsampwidth(2)
             f.setframerate(SAMPLE_RATE)
             f.writeframes(data.tobytes())
+
+    @staticmethod
+    def _write_musicxml(midi_path: Path, xml_path: Path, key_label: str) -> None:
+        # music21 is heavy; import lazily so app startup stays fast.
+        import music21
+
+        score = music21.converter.parse(str(midi_path))
+
+        tonic = (
+            key_label.replace(" major", "").replace(" minor", "").replace("b", "-")
+        )
+        mode = "minor" if "minor" in key_label else "major"
+        try:
+            score.insert(0, music21.key.Key(tonic, mode))
+        except Exception:
+            pass
+
+        # Snap to 16th notes or 8th-note triplets.
+        score.quantize(
+            quarterLengthDivisors=(4, 3),
+            processOffsets=True,
+            processDurations=True,
+            recurse=True,
+            inPlace=True,
+        )
+        score.write("musicxml", fp=str(xml_path))
 
     @staticmethod
     def _write_midi(

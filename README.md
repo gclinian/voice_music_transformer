@@ -38,12 +38,24 @@ GUI 操作：
 - **滑桿**：
   - `Threshold` — 環境吵就調高，避免靜音被誤判
   - `Confidence` — 口哨/唱歌不穩可以調高
+- **Genre**：高階風格 preset，一鍵把 Instrument / Chord / Bass / V7 全部設好
+  - `Pop` — Bright Piano + diatonic triads
+  - `Jazz` — Rhodes + diatonic 7ths + 根音 bass + V7
+  - `Classical` — Grand Piano + diatonic triads + 八度 bass
+  - `Beatles` — Grand Piano + diatonic triads + V7 終止式
+  - `Custom` — 完全手動
+- **Key**：24 個調 (12 大 + 12 小)。Diatonic 模式會用這個決定每個音應該配哪種和弦
 - **Instrument**：18 種 General MIDI 樂器 (Piano、Violin、Cello、Flute、Trumpet…) 即時切換
-- **Chord**：11 種和弦模式 — Off (單音)、Major / Minor triad、Sus4、Power、Major 7、Minor 7、Bass + triad 等。預設 Major triad
+- **Chord**：13 種和弦模式
+  - `Diatonic triad` (預設) / `Diatonic 7th` — 看 Key 決定 (例如 C 大調裡 D 自動配 Dm)
+  - `Major / Minor triad`、`Sus4`、`Power`、`Major 7`、`Minor 7`、`Octave`、`Bass + triad`、`Off (mono)`
+- **Bass octaves**：根音下移幾個八度 (0 / 1 / 2)
+- **V → V7**：勾起來讓 V 級和弦升級為屬七 (Beatles 終止式)
 - **Start / Stop**：開關引擎
-- **● Record**：按下開始錄，再按一下停。同時存兩個檔到 `recordings/`：
+- **● Record**：按下開始錄，再按一下停。同時存三個檔到 `recordings/`：
   - `piano_2026-05-21_00-07-12.wav` — 樂器音訊 (44.1 kHz / stereo / int16)，包含和弦
-  - `piano_2026-05-21_00-07-12.mid` — MIDI (note on/off + 時間)，可以丟進 GarageBand/Logic 換音色或編輯
+  - `piano_2026-05-21_00-07-12.mid` — MIDI，可以丟進 GarageBand/Logic 換音色或編輯
+  - `piano_2026-05-21_00-07-12.musicxml` — 樂譜檔，量化過拍子與調號，免費的 MuseScore 開啟即看五線譜
 
 ## Project layout
 
