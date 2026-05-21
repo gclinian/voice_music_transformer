@@ -56,6 +56,14 @@ GUI 操作：
   - `piano_2026-05-21_00-07-12.wav` — 樂器音訊 (44.1 kHz / stereo / int16)，包含和弦
   - `piano_2026-05-21_00-07-12.mid` — MIDI，可以丟進 GarageBand/Logic 換音色或編輯
   - `piano_2026-05-21_00-07-12.musicxml` — 樂譜檔，量化過拍子與調號，免費的 MuseScore 開啟即看五線譜
+- **♪ Harmonize Last**：兩段式工作流。先把 Chord 切到 `Off (mono)` 錄純旋律 → 點這顆，引擎會：
+  1. 用 Krumhansl-Schmuckler 演算法從整段旋律偵測 key
+  2. 把旋律切成小節 (一小節一個和弦)
+  3. 每小節挑最符合該段音的 diatonic 和弦，並用 V→I / ii→V 等常見進行的 bonus 做前後文修正
+  4. 末小節若旋律落在主音，強制配 I 收尾
+  5. 多存三個檔：`piano_*_harmonized.{wav,mid,musicxml}`
+  
+  測試結果：Mary had a little lamb 自動配 `I → I → V → I`；Twinkle Twinkle 配 `I → V → ii → V → ii → I → V → I`
 
 ## Project layout
 

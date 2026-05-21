@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import sounddevice as sd
-from PySide6.QtCore import Qt, QRectF, QSize
+from PySide6.QtCore import QObject, QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QGroupBox,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from .audio_engine import AudioEngine, PIANO_MAX_MIDI, PIANO_MIN_MIDI
 from .genres import GENRES, get_genre
 from .harmony import KEYS
+from .harmonizer import harmonize_melody
 from .instruments import (
     CHORD_RECIPES,
     DEFAULT_CHORD,
@@ -32,6 +34,7 @@ from .instruments import (
     INSTRUMENTS,
 )
 from .pitch import midi_to_note_name
+from .render import render_score_to_wav
 
 # MIDI 21..108 is the 88-key range. Whites are non-{1,3,6,8,10} mod 12.
 _BLACK_KEY_PCS = {1, 3, 6, 8, 10}
@@ -176,14 +179,48 @@ class VUMeter(QWidget):
         painter.end()
 
 
+class HarmonizeWorker(QObject):
+    """Run harmonize_melody + render_score_to_wav off the UI thread."""
+
+    finished = Signal(str, str, str, str, str)  # midi, xml, wav, key_label, progression
+    failed = Signal(str)
+
+    def __init__(self, midi_path: str, soundfont: str, window_ql: float) -> None:
+        super().__init__()
+        self._midi_path = midi_path
+        self._soundfont = soundfont
+        self._window_ql = window_ql
+
+    def run(self) -> None:
+        try:
+            base = Path(self._midi_path).with_suffix("")
+            xml_out = str(base) + "_harmonized.musicxml"
+            mid_out = str(base) + "_harmonized.mid"
+            wav_out = str(base) + "_harmonized.wav"
+
+            result = harmonize_melody(self._midi_path, window_ql=self._window_ql)
+            result.score.write("musicxml", fp=xml_out)
+            result.score.write("midi", fp=mid_out)
+            render_score_to_wav(result.score, self._soundfont, wav_out, program=0)
+
+            key_label = f"{result.detected_key.tonic.name} {result.detected_key.mode}"
+            progression = " → ".join(result.progression)
+            self.finished.emit(mid_out, xml_out, wav_out, key_label, progression)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, soundfont_path: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Voice → Piano")
-        self.resize(960, 360)
+        self.resize(960, 380)
 
         self._soundfont_path = soundfont_path or ""
         self._engine: AudioEngine | None = None
+        self._last_midi_path: str | None = None
+        self._harmonize_thread: QThread | None = None
+        self._harmonize_worker: HarmonizeWorker | None = None
 
         central = QWidget()
         root = QVBoxLayout(central)
@@ -272,7 +309,6 @@ class MainWindow(QMainWindow):
         self.bass_combo.currentIndexChanged.connect(self._on_bass_changed)
         bass_row.addWidget(self.bass_combo, stretch=1)
         bass_row.addSpacing(12)
-        from PySide6.QtWidgets import QCheckBox  # local import keeps top tidy
         self.dom7_check = QCheckBox("V → V7 (dominant cadence)")
         self.dom7_check.toggled.connect(self._on_dom7_changed)
         bass_row.addWidget(self.dom7_check, stretch=1)
@@ -323,10 +359,25 @@ class MainWindow(QMainWindow):
         self.record_btn.setStyleSheet(self._record_btn_style(active=False))
         self.record_btn.clicked.connect(self._toggle_recording)
 
+        self.harmonize_btn = QPushButton("♪ Harmonize Last")
+        self.harmonize_btn.setEnabled(False)
+        self.harmonize_btn.setToolTip(
+            "Read the last recording's MIDI, detect key, add chords per measure,\n"
+            "and save *_harmonized.{wav,mid,musicxml}. Use this after recording\n"
+            "with Chord = Off (mono) to keep the melody clean and add chords later."
+        )
+        self.harmonize_btn.setStyleSheet(
+            "QPushButton { padding: 10px 20px; font-size: 14px; font-weight: 600;"
+            " color: #2c7; }"
+            "QPushButton:disabled { color: #aaa; }"
+        )
+        self.harmonize_btn.clicked.connect(self._run_harmonize)
+
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         btn_row.addWidget(self.start_btn)
         btn_row.addWidget(self.record_btn)
+        btn_row.addWidget(self.harmonize_btn)
         btn_row.addStretch()
         root.addLayout(btn_row)
 
@@ -496,6 +547,62 @@ class MainWindow(QMainWindow):
         if musicxml_path:
             parts.append(Path(musicxml_path).name)
         self.status_label.setText("Saved: " + " + ".join(parts))
+        self._last_midi_path = midi_path
+        self.harmonize_btn.setEnabled(bool(self._soundfont_path))
+
+    def _run_harmonize(self) -> None:
+        if (
+            self._last_midi_path is None
+            or not Path(self._last_midi_path).exists()
+            or not self._soundfont_path
+        ):
+            QMessageBox.warning(self, "Harmonize", "No recording to harmonize yet.")
+            return
+        if self._harmonize_thread is not None:
+            return  # already running
+
+        self.harmonize_btn.setEnabled(False)
+        self.status_label.setText("Harmonizing…")
+
+        self._harmonize_thread = QThread()
+        self._harmonize_worker = HarmonizeWorker(
+            midi_path=self._last_midi_path,
+            soundfont=self._soundfont_path,
+            window_ql=4.0,  # one chord per measure
+        )
+        self._harmonize_worker.moveToThread(self._harmonize_thread)
+        self._harmonize_thread.started.connect(self._harmonize_worker.run)
+        self._harmonize_worker.finished.connect(self._on_harmonize_done)
+        self._harmonize_worker.failed.connect(self._on_harmonize_failed)
+        self._harmonize_worker.finished.connect(self._cleanup_harmonize_thread)
+        self._harmonize_worker.failed.connect(self._cleanup_harmonize_thread)
+        self._harmonize_thread.start()
+
+    def _on_harmonize_done(
+        self,
+        mid_path: str,
+        xml_path: str,
+        wav_path: str,
+        key_label: str,
+        progression: str,
+    ) -> None:
+        msg = (
+            f"Harmonized in {key_label} — {progression}\n"
+            f"Saved: {Path(wav_path).name} + {Path(mid_path).name} + {Path(xml_path).name}"
+        )
+        self.status_label.setText(msg)
+
+    def _on_harmonize_failed(self, msg: str) -> None:
+        self.status_label.setText("")
+        QMessageBox.warning(self, "Harmonize failed", msg)
+
+    def _cleanup_harmonize_thread(self, *_args) -> None:
+        if self._harmonize_thread is not None:
+            self._harmonize_thread.quit()
+            self._harmonize_thread.wait(2000)
+        self._harmonize_thread = None
+        self._harmonize_worker = None
+        self.harmonize_btn.setEnabled(self._last_midi_path is not None)
 
     def _on_note(self, midi: int, freq: float, velocity: int, chord) -> None:
         self.note_label.setText(midi_to_note_name(midi))
