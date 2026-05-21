@@ -38,9 +38,11 @@ GUI 操作：
 - **滑桿**：
   - `Threshold` — 環境吵就調高，避免靜音被誤判
   - `Confidence` — 口哨/唱歌不穩可以調高
+- **Instrument**：18 種 General MIDI 樂器 (Piano、Violin、Cello、Flute、Trumpet…) 即時切換
+- **Chord**：11 種和弦模式 — Off (單音)、Major / Minor triad、Sus4、Power、Major 7、Minor 7、Bass + triad 等。預設 Major triad
 - **Start / Stop**：開關引擎
 - **● Record**：按下開始錄，再按一下停。同時存兩個檔到 `recordings/`：
-  - `piano_2026-05-21_00-07-12.wav` — 鋼琴音訊 (44.1 kHz / stereo / int16)
+  - `piano_2026-05-21_00-07-12.wav` — 樂器音訊 (44.1 kHz / stereo / int16)，包含和弦
   - `piano_2026-05-21_00-07-12.mid` — MIDI (note on/off + 時間)，可以丟進 GarageBand/Logic 換音色或編輯
 
 ## Project layout

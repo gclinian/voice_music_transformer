@@ -29,6 +29,11 @@ import numpy as np  # noqa: E402
 import sounddevice as sd  # noqa: E402
 from PySide6.QtCore import QObject, Signal  # noqa: E402
 
+from .instruments import (  # noqa: E402
+    CHORD_RECIPES,
+    DEFAULT_CHORD,
+    DEFAULT_INSTRUMENT_PROGRAM,
+)
 from .pitch import detect_pitch_autocorr, freq_to_midi  # noqa: E402
 
 SAMPLE_RATE = 44100
@@ -45,7 +50,8 @@ class AudioEngine(QObject):
     """
 
     levelChanged = Signal(float)
-    notePlayed = Signal(int, float, int)  # midi, freq_hz, velocity
+    # detected root note: midi, freq_hz, velocity, list[int] of chord notes
+    notePlayed = Signal(int, float, int, list)
     noteReleased = Signal()
     errorOccurred = Signal(str)
     recordingStateChanged = Signal(bool)
@@ -59,6 +65,8 @@ class AudioEngine(QObject):
         confidence: float = 0.3,
         note_hold_ms: int = 120,
         recordings_dir: str = "recordings",
+        instrument_program: int = DEFAULT_INSTRUMENT_PROGRAM,
+        chord_mode: str = DEFAULT_CHORD,
     ) -> None:
         super().__init__()
         self._soundfont_path = soundfont_path
@@ -67,6 +75,8 @@ class AudioEngine(QObject):
         self._confidence = confidence
         self._note_hold_ms = note_hold_ms
         self._recordings_dir = Path(recordings_dir)
+        self._instrument_program = instrument_program
+        self._chord_mode = chord_mode
 
         self._audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=20)
         self._stop_event = threading.Event()
@@ -74,7 +84,9 @@ class AudioEngine(QObject):
         self._in_stream: sd.InputStream | None = None
         self._out_stream: sd.OutputStream | None = None
         self._fs: fluidsynth.Synth | None = None
-        self._current_note: int | None = None
+        self._sfid: int | None = None
+        self._root_note: int | None = None
+        self._active_notes: set[int] = set()
 
         # recording state
         self._recording = False
@@ -90,6 +102,18 @@ class AudioEngine(QObject):
 
     def set_confidence(self, value: float) -> None:
         self._confidence = float(value)
+
+    def set_instrument(self, program: int) -> None:
+        self._instrument_program = int(program)
+        if self._fs is not None and self._sfid is not None:
+            self._fs.program_select(0, self._sfid, 0, self._instrument_program)
+
+    def set_chord_mode(self, mode: str) -> None:
+        if mode not in CHORD_RECIPES:
+            return
+        # Drop the in-flight chord so the next detection picks up the new mode.
+        self._release_active_notes()
+        self._chord_mode = mode
 
     def is_running(self) -> bool:
         return self._worker is not None and self._worker.is_alive()
@@ -109,10 +133,12 @@ class AudioEngine(QObject):
             sfid = self._fs.sfload(self._soundfont_path)
             if sfid == -1:
                 raise RuntimeError("FluidSynth could not load SoundFont")
-            self._fs.program_select(0, sfid, 0, 0)
+            self._fs.program_select(0, sfid, 0, self._instrument_program)
+            self._sfid = sfid
         except Exception as exc:
             self.errorOccurred.emit(f"FluidSynth init failed: {exc}")
             self._fs = None
+            self._sfid = None
             return
 
         try:
@@ -157,7 +183,8 @@ class AudioEngine(QObject):
             self._worker = None
         self._cleanup_streams()
         self._cleanup_synth()
-        self._current_note = None
+        self._root_note = None
+        self._active_notes.clear()
         self.noteReleased.emit()
 
     def start_recording(self) -> None:
@@ -236,10 +263,11 @@ class AudioEngine(QObject):
 
             if rms < self._rms_threshold:
                 if (
-                    self._current_note is not None
+                    self._root_note is not None
                     and now - last_voiced > self._note_hold_ms / 1000.0
                 ):
-                    self._release_note()
+                    self._release_active_notes()
+                    self.noteReleased.emit()
                 continue
 
             freq = detect_pitch_autocorr(
@@ -253,28 +281,42 @@ class AudioEngine(QObject):
                 continue
 
             velocity = int(np.clip(rms * 800, 40, 120))
-            self._play_note(midi, freq, velocity)
+            self._play_chord(midi, freq, velocity)
             last_voiced = now
 
     # --- note helpers -----------------------------------------------------
 
-    def _play_note(self, midi: int, freq: float, velocity: int) -> None:
-        if self._fs is None or self._current_note == midi:
+    def _play_chord(self, root: int, freq: float, velocity: int) -> None:
+        if self._fs is None or self._root_note == root:
             return
-        if self._current_note is not None:
-            self._fs.noteoff(0, self._current_note)
-            self._record_midi("off", self._current_note, 0)
-        self._fs.noteon(0, midi, velocity)
-        self._record_midi("on", midi, velocity)
-        self._current_note = midi
-        self.notePlayed.emit(midi, freq, velocity)
 
-    def _release_note(self) -> None:
-        if self._fs is not None and self._current_note is not None:
-            self._fs.noteoff(0, self._current_note)
-            self._record_midi("off", self._current_note, 0)
-        self._current_note = None
-        self.noteReleased.emit()
+        intervals = CHORD_RECIPES.get(self._chord_mode, (0,))
+        new_notes = {
+            n for n in (root + i for i in intervals) if PIANO_MIN_MIDI <= n <= PIANO_MAX_MIDI
+        }
+
+        # Release notes that aren't in the new chord, keep shared ones ringing.
+        for old in self._active_notes - new_notes:
+            self._fs.noteoff(0, old)
+            self._record_midi("off", old, 0)
+        for new in new_notes - self._active_notes:
+            self._fs.noteon(0, new, velocity)
+            self._record_midi("on", new, velocity)
+
+        self._active_notes = new_notes
+        self._root_note = root
+        self.notePlayed.emit(root, freq, velocity, sorted(new_notes))
+
+    def _release_active_notes(self) -> None:
+        if self._fs is None:
+            self._active_notes.clear()
+            self._root_note = None
+            return
+        for n in self._active_notes:
+            self._fs.noteoff(0, n)
+            self._record_midi("off", n, 0)
+        self._active_notes.clear()
+        self._root_note = None
 
     def _record_midi(self, kind: str, note: int, velocity: int) -> None:
         if not self._recording:
@@ -340,9 +382,11 @@ class AudioEngine(QObject):
     def _cleanup_synth(self) -> None:
         if self._fs is not None:
             try:
-                if self._current_note is not None:
-                    self._fs.noteoff(0, self._current_note)
+                for n in self._active_notes:
+                    self._fs.noteoff(0, n)
                 self._fs.delete()
             except Exception:
                 pass
             self._fs = None
+        self._sfid = None
+        self._active_notes.clear()

@@ -22,6 +22,12 @@ from PySide6.QtWidgets import (
 )
 
 from .audio_engine import AudioEngine, PIANO_MAX_MIDI, PIANO_MIN_MIDI
+from .instruments import (
+    CHORD_RECIPES,
+    DEFAULT_CHORD,
+    DEFAULT_INSTRUMENT_PROGRAM,
+    INSTRUMENTS,
+)
 from .pitch import midi_to_note_name
 
 # MIDI 21..108 is the 88-key range. Whites are non-{1,3,6,8,10} mod 12.
@@ -33,22 +39,27 @@ def _is_black(midi: int) -> bool:
 
 
 class PianoKeyboardWidget(QWidget):
-    """88-key piano. Call set_active_note(midi) to highlight."""
+    """88-key piano. Set highlighted notes via set_active_notes(set/list)."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._active: int | None = None
+        self._active: set[int] = set()
+        self._root: int | None = None
         self.setMinimumHeight(110)
-        self.setSizePolicy(self.sizePolicy().horizontalPolicy(), self.sizePolicy().verticalPolicy())
 
     def sizeHint(self) -> QSize:
         return QSize(880, 120)
 
-    def set_active_note(self, midi: int | None) -> None:
-        if midi == self._active:
+    def set_active_notes(self, notes, root: int | None = None) -> None:
+        new = set(notes) if notes else set()
+        if new == self._active and root == self._root:
             return
-        self._active = midi
+        self._active = new
+        self._root = root
         self.update()
+
+    def clear(self) -> None:
+        self.set_active_notes(set(), None)
 
     def paintEvent(self, event) -> None:  # noqa: ARG002
         painter = QPainter(self)
@@ -63,20 +74,24 @@ class PianoKeyboardWidget(QWidget):
         bkey_w = wkey_w * 0.58
         bkey_h = wkey_h * 0.62
 
-        # Draw white keys
+        # White keys
         for i, midi in enumerate(whites):
             rect = QRectF(i * wkey_w, 0, wkey_w, wkey_h)
-            if midi == self._active:
+            if midi in self._active:
                 grad = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-                grad.setColorAt(0.0, QColor(120, 200, 255))
-                grad.setColorAt(1.0, QColor(60, 140, 220))
+                if midi == self._root:
+                    grad.setColorAt(0.0, QColor(255, 170, 80))
+                    grad.setColorAt(1.0, QColor(220, 110, 30))
+                else:
+                    grad.setColorAt(0.0, QColor(120, 200, 255))
+                    grad.setColorAt(1.0, QColor(60, 140, 220))
                 painter.fillRect(rect, QBrush(grad))
             else:
                 painter.fillRect(rect, QColor(252, 252, 250))
             painter.setPen(QPen(QColor(90, 90, 90), 0.8))
             painter.drawRect(rect)
 
-            if midi % 12 == 0:  # label C notes
+            if midi % 12 == 0:
                 painter.setPen(QColor(120, 120, 120))
                 painter.setFont(QFont("Helvetica", 8))
                 painter.drawText(
@@ -85,21 +100,24 @@ class PianoKeyboardWidget(QWidget):
                     midi_to_note_name(midi),
                 )
 
-        # Draw black keys on top.
+        # Black keys
         white_idx = {m: i for i, m in enumerate(whites)}
         for midi in range(PIANO_MIN_MIDI, PIANO_MAX_MIDI + 1):
             if not _is_black(midi):
                 continue
-            # Position: between the white key just below and this black key.
             left_white = midi - 1
             if left_white not in white_idx:
                 continue
             x = (white_idx[left_white] + 1) * wkey_w - bkey_w / 2
             rect = QRectF(x, 0, bkey_w, bkey_h)
-            if midi == self._active:
+            if midi in self._active:
                 grad = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-                grad.setColorAt(0.0, QColor(40, 110, 200))
-                grad.setColorAt(1.0, QColor(20, 60, 140))
+                if midi == self._root:
+                    grad.setColorAt(0.0, QColor(220, 120, 40))
+                    grad.setColorAt(1.0, QColor(140, 60, 10))
+                else:
+                    grad.setColorAt(0.0, QColor(40, 110, 200))
+                    grad.setColorAt(1.0, QColor(20, 60, 140))
                 painter.fillRect(rect, QBrush(grad))
             else:
                 painter.fillRect(rect, QColor(20, 20, 20))
@@ -196,6 +214,28 @@ class MainWindow(QMainWindow):
         # Settings panel
         settings = QGroupBox("Settings")
         sl = QVBoxLayout(settings)
+
+        # Instrument + Chord row
+        inst_row = QHBoxLayout()
+        inst_row.addWidget(QLabel("Instrument"))
+        self.instrument_combo = QComboBox()
+        for name, program in INSTRUMENTS:
+            self.instrument_combo.addItem(name, program)
+            if program == DEFAULT_INSTRUMENT_PROGRAM:
+                self.instrument_combo.setCurrentIndex(self.instrument_combo.count() - 1)
+        self.instrument_combo.currentIndexChanged.connect(self._on_instrument_changed)
+        inst_row.addWidget(self.instrument_combo, stretch=1)
+
+        inst_row.addSpacing(12)
+        inst_row.addWidget(QLabel("Chord"))
+        self.chord_combo = QComboBox()
+        for name in CHORD_RECIPES:
+            self.chord_combo.addItem(name)
+            if name == DEFAULT_CHORD:
+                self.chord_combo.setCurrentIndex(self.chord_combo.count() - 1)
+        self.chord_combo.currentTextChanged.connect(self._on_chord_changed)
+        inst_row.addWidget(self.chord_combo, stretch=1)
+        sl.addLayout(inst_row)
 
         # Input device
         dev_row = QHBoxLayout()
@@ -359,6 +399,8 @@ class MainWindow(QMainWindow):
             input_device=device,
             rms_threshold=self.threshold_slider.value() * 0.01,
             confidence=self.confidence_slider.value() * 0.01,
+            instrument_program=self.instrument_combo.currentData(),
+            chord_mode=self.chord_combo.currentText(),
         )
         self._engine.levelChanged.connect(self.vu.set_level)
         self._engine.notePlayed.connect(self._on_note)
@@ -383,7 +425,7 @@ class MainWindow(QMainWindow):
         self.record_btn.setStyleSheet(self._record_btn_style(active=False))
         self.freq_label.setText("Stopped")
         self.note_label.setText("—")
-        self.keyboard.set_active_note(None)
+        self.keyboard.clear()
         self.vu.set_level(0.0)
 
     def _toggle_recording(self) -> None:
@@ -408,13 +450,27 @@ class MainWindow(QMainWindow):
         midi_name = Path(midi_path).name
         self.status_label.setText(f"Saved: {wav_name} + {midi_name}")
 
-    def _on_note(self, midi: int, freq: float, velocity: int) -> None:
+    def _on_note(self, midi: int, freq: float, velocity: int, chord) -> None:
         self.note_label.setText(midi_to_note_name(midi))
-        self.freq_label.setText(f"{freq:.1f} Hz · MIDI {midi} · vel {velocity}")
-        self.keyboard.set_active_note(midi)
+        chord_names = " · ".join(midi_to_note_name(n) for n in chord)
+        if len(chord) > 1:
+            self.freq_label.setText(
+                f"{freq:.1f} Hz · root MIDI {midi} · vel {velocity}  →  {chord_names}"
+            )
+        else:
+            self.freq_label.setText(f"{freq:.1f} Hz · MIDI {midi} · vel {velocity}")
+        self.keyboard.set_active_notes(chord, root=midi)
 
     def _on_release(self) -> None:
-        self.keyboard.set_active_note(None)
+        self.keyboard.clear()
+
+    def _on_instrument_changed(self, _index: int) -> None:
+        if self._engine is not None:
+            self._engine.set_instrument(self.instrument_combo.currentData())
+
+    def _on_chord_changed(self, mode: str) -> None:
+        if self._engine is not None:
+            self._engine.set_chord_mode(mode)
 
     def _on_error(self, msg: str) -> None:
         QMessageBox.critical(self, "Audio error", msg)
