@@ -393,9 +393,10 @@ class AudioEngine(QObject):
                 self._record_midi("on", new, velocity)
             self._active_notes = new_notes
         else:
-            # Pattern mode: hand the chord to the pattern thread, which will
-            # trigger noteons according to the loop. Drop any still-ringing
-            # block notes from a previous mode.
+            # Pattern mode: just update the chord the player thread reads. The
+            # rhythm keeps running on its own grid — only the *content* of the
+            # next event changes. This sounds like a human pianist comping
+            # over a singer instead of restarting on every note.
             for old in self._active_notes:
                 self._fs.noteoff(0, old)
                 self._record_midi("off", old, 0)
@@ -403,7 +404,6 @@ class AudioEngine(QObject):
             with self._pattern_lock:
                 self._pattern_chord = sorted(new_notes)
                 self._pattern_velocity = velocity
-            self._pattern_restart.set()
 
         self._root_note = root
         self.notePlayed.emit(root, freq, velocity, sorted(new_notes))
@@ -435,8 +435,16 @@ class AudioEngine(QObject):
         self._pattern_active_notes.clear()
 
     def _run_pattern(self) -> None:
-        """Pattern player. Wakes up on chord changes and at each event boundary."""
-        pending: list[tuple[float, int]] = []  # heap of (when_to_noteoff, note)
+        """Continuous-rhythm pattern player.
+
+        The rhythm runs on its own clock. Chord changes update what the next
+        event plays, NOT when. Restart only happens on explicit silence,
+        pattern change, or engine stop — that way singing a fast melody
+        doesn't cause the pattern to stutter on beat 0 forever.
+        """
+        pending: list[tuple[float, int]] = []
+        loop_start = time.monotonic()
+        event_index = 0
 
         while not self._stop_event.is_set():
             with self._pattern_lock:
@@ -444,52 +452,56 @@ class AudioEngine(QObject):
                 chord = list(self._pattern_chord)
                 velocity = self._pattern_velocity
                 beat_dur = 60.0 / max(40, self._bpm)
+                resetting = self._pattern_restart.is_set()
+                if resetting:
+                    self._pattern_restart.clear()
 
-            if pattern is None or pattern.name == "Block" or not chord:
-                # Drain any leftover noteoffs, then idle until restart.
-                self._drain_pending(pending, until=time.monotonic() + 0.05)
-                self._pattern_restart.wait(timeout=0.1)
-                self._pattern_restart.clear()
+            if resetting:
+                self._release_pattern_notes()
+                pending.clear()
+                loop_start = time.monotonic()
+                event_index = 0
                 continue
 
-            loop_start = time.monotonic()
-            self._pattern_restart.clear()
+            if pattern is None or pattern.name == "Block":
+                # Idle — there's no rhythm to schedule. Wake up if someone
+                # changes the pattern or asks us to stop.
+                time.sleep(0.05)
+                loop_start = time.monotonic()
+                event_index = 0
+                continue
 
-            for event in pattern.events:
-                # Wait until this event's time, unless interrupted by a new chord.
-                event_time = loop_start + event.offset_beats * beat_dur
-                while True:
-                    now = time.monotonic()
-                    self._drain_pending(pending, until=now)
-                    if self._stop_event.is_set() or self._pattern_restart.is_set():
-                        break
-                    remaining = event_time - now
-                    if remaining <= 0:
-                        break
-                    # Sleep until next noteoff or event, whichever is sooner.
-                    next_off = pending[0][0] if pending else event_time
-                    time.sleep(min(0.01, max(0.0, min(next_off, event_time) - now)))
+            # Loop bookkeeping.
+            loop_length = pattern.length_beats * beat_dur
+            if event_index >= len(pattern.events):
+                loop_start += loop_length
+                event_index = 0
 
-                if self._stop_event.is_set():
-                    break
-                if self._pattern_restart.is_set():
-                    # Chord changed — flush ringing voices and restart loop.
-                    self._release_pattern_notes()
-                    pending.clear()
-                    break
+            event = pattern.events[event_index]
+            target_time = loop_start + event.offset_beats * beat_dur
+            now = time.monotonic()
 
-                if self._fs is None:
-                    continue
+            self._drain_pending(pending, until=now)
 
+            wait = target_time - now
+            if wait > 0.005:
+                time.sleep(min(wait, 0.02))
+                continue
+
+            # Fire — but only if there's a chord to voice. (Silence means
+            # the pattern keeps spinning at its tempo but produces no notes,
+            # so when the user starts singing again the rhythm is already in
+            # phase.)
+            if chord and self._fs is not None:
                 notes = resolve_voices(event.voice, chord)
                 vel = max(1, min(127, int(velocity * event.velocity_mult)))
-                off_time = event_time + event.duration_beats * beat_dur
+                off_time = target_time + event.duration_beats * beat_dur
                 for n in notes:
                     if not (PIANO_MIN_MIDI <= n <= PIANO_MAX_MIDI):
                         continue
-                    # If a previous instance of this note is still ringing, stop it
-                    # so the noteon is a clean retrigger.
                     if n in self._pattern_active_notes:
+                        # Same voice already ringing from a previous event —
+                        # release first so the noteon is a clean retrigger.
                         self._fs.noteoff(0, n)
                         self._record_midi("off", n, 0)
                     self._fs.noteon(0, n, vel)
@@ -497,14 +509,7 @@ class AudioEngine(QObject):
                     self._pattern_active_notes.add(n)
                     heapq.heappush(pending, (off_time, n))
 
-            else:
-                # Loop completed without restart — wait out the rest of the bar.
-                loop_end = loop_start + pattern.length_beats * beat_dur
-                while time.monotonic() < loop_end:
-                    if self._stop_event.is_set() or self._pattern_restart.is_set():
-                        break
-                    self._drain_pending(pending, until=time.monotonic())
-                    time.sleep(0.005)
+            event_index += 1
 
         # Engine shutdown — silence anything still ringing.
         self._release_pattern_notes()

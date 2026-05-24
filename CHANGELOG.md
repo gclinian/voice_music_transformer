@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Pattern player is continuous** — chord changes no longer restart the
+  rhythm at beat 0. The pattern keeps spinning on its own tempo grid and
+  the chord change just updates which voices the next event plays.
+  Previously, singing a fast melody made every note re-trigger the
+  pattern's downbeat, which sounded jagged.
+- **Strum simplified** from 10 overlapping events to 4: one quick
+  low-to-high roll, then the chord rings for the remaining 3.6 beats.
+  Pattern length doubled from 2 to 4 beats.
+- **Pop 1+3 note duration** shortened from 0.9 to 0.45 beats so each
+  voice has space to decay before the next beat hits.
+
 ### Added
 - **Rhythm patterns** (`voice_to_piano/patterns.py`): 8 patterns that loop
   while a chord is held — Block, Arpeggio Up/Down, Alberti bass, Pop 1+3,

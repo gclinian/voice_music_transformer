@@ -87,10 +87,10 @@ _POP = RhythmPattern(
     name="Pop 1+3",
     length_beats=4.0,
     events=(
-        PatternEvent(0.0, "root", 0.9, 1.0),
-        PatternEvent(1.0, "upper", 0.9, 0.85),
-        PatternEvent(2.0, "root", 0.9, 1.0),
-        PatternEvent(3.0, "upper", 0.9, 0.85),
+        PatternEvent(0.0, "root", 0.45, 1.0),
+        PatternEvent(1.0, "upper", 0.45, 0.85),
+        PatternEvent(2.0, "root", 0.45, 1.0),
+        PatternEvent(3.0, "upper", 0.45, 0.85),
     ),
     blurb="Root on beats 1+3, upper voices on 2+4. Classic backbeat feel.",
 )
@@ -118,22 +118,15 @@ _JAZZ = RhythmPattern(
 
 _STRUM = RhythmPattern(
     name="Strum",
-    length_beats=2.0,
+    length_beats=4.0,
     events=(
-        # Quick roll, then hold.
-        PatternEvent(0.00, 0, 0.04, 0.65),
-        PatternEvent(0.04, 1, 0.04, 0.75),
-        PatternEvent(0.08, 2, 0.04, 0.85),
-        PatternEvent(0.12, -1, 0.04, 0.95),
-        PatternEvent(0.16, "all", 1.8, 0.55),
-        # Second strum
-        PatternEvent(1.00, 0, 0.04, 0.65),
-        PatternEvent(1.04, 1, 0.04, 0.75),
-        PatternEvent(1.08, 2, 0.04, 0.85),
-        PatternEvent(1.12, -1, 0.04, 0.95),
-        PatternEvent(1.16, "all", 0.8, 0.55),
+        # Quick low-to-high roll, then leave the chord ringing for the bar.
+        PatternEvent(0.00, 0, 0.06, 0.7),
+        PatternEvent(0.06, 1, 0.06, 0.8),
+        PatternEvent(0.12, 2, 0.06, 0.9),
+        PatternEvent(0.18, -1, 3.6, 0.95),
     ),
-    blurb="Quick low-to-high arpeggio then sustain — guitar / harp feel.",
+    blurb="One quick low-to-high roll per bar, then let the chord ring.",
 )
 
 
