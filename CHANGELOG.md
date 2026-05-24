@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Rhythm patterns** (`voice_to_piano/patterns.py`): 8 patterns that loop
+  while a chord is held — Block, Arpeggio Up/Down, Alberti bass, Pop 1+3,
+  Waltz, Jazz comp, Strum. Each defines event offsets, which chord voice
+  to play, duration, and velocity multiplier.
+- **Pattern player thread** in `AudioEngine` schedules note-on / note-off
+  in sync with `bpm`; restarts on chord changes; tracks pending releases
+  in a heap so overlapping voices don't leak.
+- **Pattern + BPM controls** in the GUI (combo + 40–200 slider) with
+  tooltips describing each pattern. Genres now set their own pattern + BPM
+  (Pop → Pop 1+3 @ 100, Jazz → Jazz comp @ 132, Classical → Alberti @ 96,
+  Beatles → Strum @ 112) so Pop and Beatles finally sound different.
+- 20 new tests covering pattern data integrity, voice resolution, and
+  genre/pattern coverage. Totals 70 tests, ~0.08 s.
+
 ## [0.2.0] - 2026-05-21
 
 ### Added

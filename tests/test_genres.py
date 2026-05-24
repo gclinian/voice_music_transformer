@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from voice_to_piano.genres import GENRES, get_genre
 from voice_to_piano.instruments import CHORD_RECIPES
+from voice_to_piano.patterns import PATTERNS
 
 
 def test_all_genres_have_valid_chord_modes() -> None:
@@ -31,3 +32,15 @@ def test_jazz_uses_diatonic_7th() -> None:
     assert jazz.chord_mode == "Diatonic 7th"
     assert jazz.dom7_on_V is True
     assert jazz.bass_octaves >= 1
+
+
+def test_every_genre_has_a_known_pattern() -> None:
+    for g in GENRES:
+        if g.pattern:  # Custom leaves it blank
+            assert g.pattern in PATTERNS, f"{g.name} -> {g.pattern}"
+
+
+def test_genres_sound_different() -> None:
+    """Pop / Jazz / Classical / Beatles must each pick a different pattern."""
+    patterns = {g.pattern for g in GENRES if g.name != "Custom"}
+    assert len(patterns) == 4, f"genres reuse patterns: {patterns}"

@@ -16,7 +16,8 @@
 - 🎤 **Real-time pitch detection** — FFT autocorrelation with parabolic interpolation. Sub-cent accuracy on clean tones, ~50 ms latency end-to-end.
 - 🎹 **18 General MIDI instruments** — Acoustic & Electric Piano, Violin, Viola, Cello, String Ensemble, Flute, Trumpet, Vibraphone, Choir, Square Lead, and more. Switch live.
 - 🎼 **Key-aware chords** — pick from 24 keys (12 major + 12 minor); `Diatonic triad` / `Diatonic 7th` modes pick the right quality (Dm, not D, when you sing D in C major). 11 other shapes for power chords, sus4s, parallel triads, etc.
-- 🎚 **Genre presets** — Pop / Jazz / Classical / Beatles / Custom. One click sets Instrument + Chord + Bass + V7 to a coherent voicing.
+- 🎚 **Genre presets** — Pop / Jazz / Classical / Beatles / Custom. One click sets Instrument + Chord + Rhythm pattern + BPM + Bass + V7 to a coherent voicing.
+- 🥁 **Rhythm patterns** — 8 voicing styles (Block, Arpeggio Up/Down, Alberti bass, Pop 1+3, Waltz, Jazz comp, Strum) at any BPM. Pop's root-on-1+3 backbeat sounds nothing like Classical's Alberti 16ths, even with the same chord.
 - 🎙 **Three-file recording** — WAV (stereo 44.1 kHz), MIDI (note events), and **MusicXML** (printable sheet music, opens in MuseScore / Finale / Sibelius).
 - ♪ **Post-hoc harmonization** — record melody alone, then let the app analyse the whole phrase to add context-aware chords (V→I cadences, ii→V approaches, downbeat alignment).
 - 🖥 **Native GUI** — PySide6 / Qt 6. 88-key keyboard widget with highlighted active chord, VU meter, threshold/confidence sliders.

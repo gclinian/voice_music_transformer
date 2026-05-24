@@ -12,6 +12,8 @@ class Genre:
     bass_octaves: int          # 0 = no bass; 1 = root one octave down
     dom7_on_V: bool            # upgrade V chord to V7
     instrument_program: int    # GM program 0..127
+    pattern: str               # PATTERNS key — rhythm style
+    bpm: int                   # tempo for the pattern player
     blurb: str                 # one-line description shown in UI tooltip
 
 
@@ -22,7 +24,9 @@ GENRES: list[Genre] = [
         bass_octaves=0,
         dom7_on_V=False,
         instrument_program=1,  # Bright Piano
-        blurb="Diatonic triads, no bass — light, bright pop sound.",
+        pattern="Pop 1+3",
+        bpm=100,
+        blurb="Diatonic triads, root-on-1+3 backbeat, Bright Piano.",
     ),
     Genre(
         name="Jazz",
@@ -30,7 +34,9 @@ GENRES: list[Genre] = [
         bass_octaves=1,
         dom7_on_V=True,
         instrument_program=4,  # Electric Piano (Rhodes)
-        blurb="7ths everywhere + Rhodes + root bass. V is V7.",
+        pattern="Jazz comp",
+        bpm=132,
+        blurb="7ths everywhere, Rhodes, offbeat stabs. V is V7.",
     ),
     Genre(
         name="Classical",
@@ -38,7 +44,9 @@ GENRES: list[Genre] = [
         bass_octaves=1,
         dom7_on_V=False,
         instrument_program=0,  # Acoustic Grand Piano
-        blurb="Triads, octave-bass, Acoustic Grand. Tonal & clean.",
+        pattern="Alberti bass",
+        bpm=96,
+        blurb="Triads, octave bass, Alberti 16ths — Mozart-style accompaniment.",
     ),
     Genre(
         name="Beatles",
@@ -46,7 +54,9 @@ GENRES: list[Genre] = [
         bass_octaves=0,
         dom7_on_V=True,
         instrument_program=0,  # Acoustic Grand Piano
-        blurb="Triads + V7 cadence flavour — classic 60s pop progressions.",
+        pattern="Strum",
+        bpm=112,
+        blurb="Strummed triads + V7 cadences — 60s pop / folk feel.",
     ),
     Genre(
         name="Custom",
@@ -54,7 +64,9 @@ GENRES: list[Genre] = [
         bass_octaves=0,
         dom7_on_V=False,
         instrument_program=0,
-        blurb="No preset — change Instrument / Chord / Key by hand.",
+        pattern="",  # don't override
+        bpm=0,       # don't override
+        blurb="No preset — change Instrument / Chord / Key / Pattern by hand.",
     ),
 ]
 

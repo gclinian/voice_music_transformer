@@ -33,6 +33,7 @@ from .instruments import (
     DEFAULT_KEY,
     INSTRUMENTS,
 )
+from .patterns import DEFAULT_BPM, DEFAULT_PATTERN, PATTERNS
 from .pitch import midi_to_note_name
 from .render import render_score_to_wav
 
@@ -300,6 +301,39 @@ class MainWindow(QMainWindow):
         inst_row.addWidget(self.chord_combo, stretch=1)
         sl.addLayout(inst_row)
 
+        # Pattern + BPM row
+        pat_row = QHBoxLayout()
+        pat_row.addWidget(QLabel("Pattern"))
+        self.pattern_combo = QComboBox()
+        for name, pat in PATTERNS.items():
+            self.pattern_combo.addItem(name)
+            self.pattern_combo.setItemData(
+                self.pattern_combo.count() - 1, pat.blurb, Qt.ItemDataRole.ToolTipRole
+            )
+            if name == DEFAULT_PATTERN:
+                self.pattern_combo.setCurrentIndex(self.pattern_combo.count() - 1)
+        self.pattern_combo.currentTextChanged.connect(self._on_pattern_changed)
+        pat_row.addWidget(self.pattern_combo, stretch=1)
+
+        pat_row.addSpacing(12)
+        pat_row.addWidget(QLabel("BPM"))
+        self.bpm_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bpm_slider.setRange(40, 200)
+        self.bpm_slider.setValue(DEFAULT_BPM)
+        self.bpm_val = QLabel(str(DEFAULT_BPM))
+        self.bpm_val.setMinimumWidth(36)
+        self.bpm_val.setStyleSheet("color: #555;")
+
+        def on_bpm(v: int) -> None:
+            self.bpm_val.setText(str(v))
+            if self._engine is not None:
+                self._engine.set_bpm(v)
+
+        self.bpm_slider.valueChanged.connect(on_bpm)
+        pat_row.addWidget(self.bpm_slider, stretch=1)
+        pat_row.addWidget(self.bpm_val)
+        sl.addLayout(pat_row)
+
         # Bass octaves + V7 toggle
         bass_row = QHBoxLayout()
         bass_row.addWidget(QLabel("Bass octaves"))
@@ -496,6 +530,8 @@ class MainWindow(QMainWindow):
             key_label=self.key_combo.currentText(),
             bass_octaves=self.bass_combo.currentData(),
             dom7_on_v=self.dom7_check.isChecked(),
+            pattern=self.pattern_combo.currentText(),
+            bpm=self.bpm_slider.value(),
         )
         self._engine.levelChanged.connect(self.vu.set_level)
         self._engine.notePlayed.connect(self._on_note)
@@ -638,6 +674,10 @@ class MainWindow(QMainWindow):
         if self._engine is not None:
             self._engine.set_dom7_on_v(checked)
 
+    def _on_pattern_changed(self, name: str) -> None:
+        if self._engine is not None:
+            self._engine.set_pattern(name)
+
     def _on_genre_changed(self, name: str) -> None:
         g = get_genre(name)
         if g is None or name == "Custom":
@@ -654,6 +694,10 @@ class MainWindow(QMainWindow):
                 self.bass_combo.setCurrentIndex(i)
                 break
         self.dom7_check.setChecked(g.dom7_on_V)
+        if g.pattern and g.pattern in PATTERNS:
+            self.pattern_combo.setCurrentText(g.pattern)
+        if g.bpm:
+            self.bpm_slider.setValue(g.bpm)
 
     def _on_error(self, msg: str) -> None:
         QMessageBox.critical(self, "Audio error", msg)
